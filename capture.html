@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Take a Photo Together</title>
+    <style>
+        body {
+            margin: 0;
+            font-family: -apple-system, sans-serif;
+            background: #000;
+            color: white;
+        }
+        .header {
+            padding: 15px;
+            text-align: center;
+            background: #FF4081;
+        }
+        .camera-view {
+            width: 100vw;
+            height: 70vh;
+            position: relative;
+            overflow: hidden;
+        }
+        video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1);
+        }
+        .capture-btn {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 70px;
+            height: 70px;
+            background: white;
+            border: 4px solid #FF4081;
+            border-radius: 50%;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+            cursor: pointer;
+        }
+        .preview-screen {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: black;
+            z-index: 20;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .composite-image {
+            width: 90%;
+            max-width: 800px;
+            border: 3px solid #FF4081;
+            border-radius: 5px;
+        }
+        .confirm-btn {
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #FF4081;
+            color: white;
+            border: none;
+            border-radius: 30px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Take a Photo With Me</h1>
+    </div>
+    
+    <div class="camera-view">
+        <video id="camera" autoplay playsinline></video>
+        <div class="capture-btn" id="captureBtn"></div>
+    </div>
+    
+    <div class="preview-screen" id="previewScreen">
+        <img id="compositePreview" class="composite-image" alt="Our Photo">
+        <button class="confirm-btn" id="confirmBtn">CONFIRM</button>
+    </div>
+    
+    <canvas id="canvas" style="display:none;"></canvas>
+    
+    <script>
+        const video = document.getElementById('camera');
+        const captureBtn = document.getElementById('captureBtn');
+        const previewScreen = document.getElementById('previewScreen');
+        const compositePreview = document.getElementById('compositePreview');
+        const confirmBtn = document.getElementById('confirmBtn');
+        const canvas = document.getElementById('canvas');
+        
+        // Load your PNG photo
+        const yourPhoto = new Image();
+        yourPhoto.src = 'assets/your-photo.png';
+        
+        // Setup camera
+        async function setupCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 1080 },
+                        height: { ideal: 1350 },
+                        facingMode: 'user'
+                    }
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("Camera error:", err);
+                alert("Please enable camera permissions.");
+            }
+        }
+        
+        // Create transparency pattern
+        function createTransparencyPattern() {
+            const patternCanvas = document.createElement('canvas');
+            patternCanvas.width = 20;
+            patternCanvas.height = 20;
+            const ctx = patternCanvas.getContext('2d');
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, 20, 20);
+            ctx.fillStyle = '#555';
+            ctx.fillRect(0, 0, 10, 10);
+            ctx.fillRect(10, 10, 10, 10);
+            return ctx.createPattern(patternCanvas, 'repeat');
+        }
+        
+        // Capture photo
+        captureBtn.addEventListener('click', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            createCompositePreview();
+        });
+        
+        // Create composite image
+        function createCompositePreview() {
+            const compositeCanvas = document.createElement('canvas');
+            const outputSize = 1080; // Fixed size for consistency
+            compositeCanvas.width = outputSize * 2;
+            compositeCanvas.height = outputSize;
+            
+            const ctx = compositeCanvas.getContext('2d');
+            
+            // Draw transparency background
+            ctx.fillStyle = createTransparencyPattern();
+            ctx.fillRect(0, 0, compositeCanvas.width, compositeCanvas.height);
+            
+            // Draw USER photo (LEFT side)
+            const userPhotoHeight = outputSize * 0.8;
+            const userPhotoWidth = userPhotoHeight * (canvas.width/canvas.height);
+            
+            // White rectangle frame
+            ctx.fillStyle = 'white';
+            ctx.fillRect(
+                (outputSize - userPhotoWidth)/2 - 15, 
+                (outputSize - userPhotoHeight)/2 - 15, 
+                userPhotoWidth + 30, 
+                userPhotoHeight + 30
+            );
+            
+            // Draw user photo
+            ctx.drawImage(canvas, 
+                (outputSize - userPhotoWidth)/2, 
+                (outputSize - userPhotoHeight)/2, 
+                userPhotoWidth, 
+                userPhotoHeight);
+            
+            // Draw YOUR PNG (RIGHT side)
+            const yourPhotoHeight = outputSize * 0.8;
+            const yourPhotoWidth = yourPhotoHeight * (yourPhoto.naturalWidth/yourPhoto.naturalHeight);
+            
+            // White rectangle frame
+            ctx.fillStyle = 'white';
+            ctx.fillRect(
+                outputSize + (outputSize - yourPhotoWidth)/2 - 15, 
+                (outputSize - yourPhotoHeight)/2 - 15, 
+                yourPhotoWidth + 30, 
+                yourPhotoHeight + 30
+            );
+            
+            // Draw your PNG
+            ctx.drawImage(yourPhoto, 
+                outputSize + (outputSize - yourPhotoWidth)/2, 
+                (outputSize - yourPhotoHeight)/2, 
+                yourPhotoWidth, 
+                yourPhotoHeight);
+            
+            // Pink borders
+            ctx.strokeStyle = '#FF4081';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(5, 5, outputSize-10, outputSize-10); // Left
+            ctx.strokeRect(outputSize+5, 5, outputSize-10, outputSize-10); // Right
+            
+            // Show preview
+            compositePreview.src = compositeCanvas.toDataURL('image/png');
+            previewScreen.style.display = 'flex';
+            
+            // Confirm button
+            confirmBtn.onclick = () => {
+                sessionStorage.setItem('capturedPhoto', compositeCanvas.toDataURL('image/png'));
+                window.location.href = 'result.html';
+            };
+        }
+        
+        // Initialize
+        window.addEventListener('load', setupCamera);
+    </script>
+</body>
+</html>

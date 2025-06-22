@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <title>Interactive AR Heart</title>
+    <script src="https://aframe.io/releases/1.4.0/aframe.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.0/dist/mindar-image-aframe.prod.js"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: black;
+        }
+        #scanning-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 1000;
+            transition: opacity 0.3s;
+        }
+        #persistent-model {
+            position: fixed;
+            width: 100%;
+            height: 100%;
+            display: none;
+        }
+        #press-button {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            padding: 20px 40px;
+            background: #FF4081;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            font-size: 28px;
+            font-weight: bold;
+            box-shadow: 0 10px 30px rgba(255,64,129,0.4);
+            cursor: pointer;
+            z-index: 1001;
+            display: none;
+            opacity: 0;
+            transition: all 0.8s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+        }
+        #press-button.visible {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+        #press-button:hover {
+            background: #F50057;
+            box-shadow: 0 15px 40px rgba(255,64,129,0.6);
+        }
+        #press-button:active {
+            transform: translate(-50%, -50%) scale(0.95);
+        }
+    </style>
+</head>
+<body>
+    <div id="scanning-overlay">
+        <h1>Scan QR Code</h1>
+        <p id="status">Initializing...</p>
+    </div>
+
+    <button id="press-button">PRESS</button>
+
+    <!-- AR Scene for initial scanning -->
+    <a-scene id="ar-scene" 
+             mindar-image="imageTargetSrc:marker.mind; autoStart: true;"
+             vr-mode-ui="enabled: false"
+             renderer="colorManagement: true; antialias: true">
+        
+        <a-assets>
+            <a-asset-item id="heart-model" src="assets/heart.glb"></a-asset-item>
+        </a-assets>
+
+        <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+        <a-entity mindar-image-target="targetIndex: 0"></a-entity>
+    </a-scene>
+
+    <!-- Persistent model display (hidden initially) -->
+    <div id="persistent-model">
+        <a-scene embedded renderer="colorManagement: true; antialias: true">
+            <a-assets>
+                <a-asset-item id="heart-model-persistent" src="assets/heart.glb"></a-asset-item>
+            </a-assets>
+
+            <a-entity id="rotating-heart" 
+                     gltf-model="#heart-model-persistent"
+                     position="0 0 0"
+                     scale="0.2 0.2 0.2"
+                     rotation="0 180 0">
+            </a-entity>
+
+            <a-camera position="0 0 90"></a-camera>
+            <a-entity light="type: ambient; color: #FFF; intensity: 0.6"></a-entity>
+            <a-entity light="type: directional; color: #FFF; intensity: 0.8" position="-1 2 1"></a-entity>
+        </a-scene>
+    </div>
+
+    <script>
+        const arScene = document.getElementById('ar-scene');
+        const overlay = document.getElementById('scanning-overlay');
+        const status = document.getElementById('status');
+        const persistentModel = document.getElementById('persistent-model');
+        const persistentScene = persistentModel.querySelector('a-scene');
+        const pressButton = document.getElementById('press-button');
+        const heartModel = document.getElementById('rotating-heart');
+        let modelCaptured = false;
+        let rotationInterval;
+        let animationTimeout;
+
+        // Function to enter fullscreen automatically
+        function enterFullscreen() {
+            const elem = document.documentElement;
+            if (elem.requestFullscreen) {
+                return elem.requestFullscreen();
+            } else if (elem.webkitRequestFullscreen) {
+                return elem.webkitRequestFullscreen();
+            } else if (elem.msRequestFullscreen) {
+                return elem.msRequestFullscreen();
+            }
+            return Promise.resolve();
+        }
+
+        // Function to start rotation animation
+        function startRotation() {
+            let rotation = { y: 180 };
+            
+            rotationInterval = setInterval(() => {
+                rotation.y += 1;
+                if (rotation.y >= 540) rotation.y = 180;
+                heartModel.setAttribute('rotation', `0 ${rotation.y} 0`);
+            }, 16); // ~60fps
+        }
+
+        // Function for burst animation
+        function playBurstAnimation() {
+            let scale = 0.2;
+            let opacity = 1;
+            
+            // First - pop effect (scale up)
+            const popIn = setInterval(() => {
+                scale += 0.05;
+                heartModel.setAttribute('scale', `${scale} ${scale} ${scale}`);
+                if (scale >= 0.4) {
+                    clearInterval(popIn);
+                    
+                    // Then burst effect (scale up + fade out)
+                    const burstOut = setInterval(() => {
+                        scale += 0.1;
+                        opacity -= 0.1;
+                        heartModel.setAttribute('scale', `${scale} ${scale} ${scale}`);
+                        heartModel.setAttribute('material', 'opacity', opacity);
+                        
+                        if (opacity <= 0) {
+                            clearInterval(burstOut);
+                            heartModel.setAttribute('visible', 'false');
+                            
+                            // Show button with nice animation
+                            pressButton.style.display = 'block';
+                            setTimeout(() => {
+                                pressButton.classList.add('visible');
+                            }, 50);
+                        }
+                    }, 50);
+                }
+            }, 16);
+        }
+
+        // When persistent scene loads
+        persistentScene.addEventListener('loaded', () => {
+            console.log("Persistent scene ready");
+            // Button is already hidden by CSS (display: none), no need to set here
+        });
+
+        // Initialize AR
+        arScene.addEventListener('loaded', () => {
+            status.textContent = "Point camera at QR code";
+            
+            const mindarSystem = arScene.systems['mindar-image-system'];
+            if (mindarSystem) {
+                mindarSystem.start().catch(err => {
+                    status.textContent = "Error starting AR";
+                    console.error("AR start error:", err);
+                });
+            }
+        });
+
+        // When QR is detected
+        arScene.addEventListener('targetFound', async () => {
+            if (modelCaptured) return;
+            
+            modelCaptured = true;
+            status.textContent = "QR Detected! Switching to fullscreen...";
+            
+            try {
+                await enterFullscreen();
+                persistentModel.style.display = 'block';
+                
+                overlay.style.opacity = '0';
+                setTimeout(() => {
+                    overlay.style.display = 'none';
+                    arScene.style.display = 'none';
+                    
+                    const mindarSystem = arScene.systems['mindar-image-system'];
+                    if (mindarSystem) {
+                        mindarSystem.stop();
+                    }
+                }, 300);
+                
+                // Start rotation and animation sequence after QR detection
+                startRotation();
+                animationTimeout = setTimeout(() => {
+                    clearInterval(rotationInterval);
+                    playBurstAnimation();
+                }, 5000);
+                
+            } catch (error) {
+                console.error("Fullscreen error:", error);
+                persistentModel.style.display = 'block';
+                overlay.style.display = 'none';
+                arScene.style.display = 'none';
+                
+                // Start rotation and animation sequence after QR detection
+                startRotation();
+                animationTimeout = setTimeout(() => {
+                    clearInterval(rotationInterval);
+                    playBurstAnimation();
+                }, 5000);
+            }
+        });
+
+        // Button click handler
+        // Button click handler
+pressButton.addEventListener('click', () => {
+    // Clean up AR resources
+    const mindarSystem = arScene.systems['mindar-image-system'];
+    if (mindarSystem) {
+        mindarSystem.stop();
+    }
+    
+    // Stop any animations
+    clearInterval(rotationInterval);
+    clearTimeout(animationTimeout);
+    
+    // Redirect to photo capture page
+    window.location.href = "capture.html";
+});
+
+        // Clean up on exit
+        window.addEventListener('beforeunload', () => {
+            clearInterval(rotationInterval);
+            clearTimeout(animationTimeout);
+        });
+
+        // Start everything
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log("DOM fully loaded");
+            // Button is already hidden by CSS (display: none), no need to set here
+        });
+    </script>
+</body>
+</html>
